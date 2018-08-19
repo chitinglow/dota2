@@ -1,0 +1,169 @@
+---
+title: "Twitter Analysis of Dota2 Group Stage"
+output:
+  pdf_document: default
+  html_document: default
+always_allow_html: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+## Introduction
+
+Dota 2 is a free to play multiplayer online battle arena (MOBA) game. The recent tournament The International 2018 (TI8) has begin started from 15/08/2018 to 25/08/2018 which have a price pool of 24,721,548 millions USD. It has one of the largest prize pool across all the Esport tournament. This year the tournament is held at Vancouver, Canada. For more information of the tournament, you can see this [link](https://liquipedia.net/dota2/The_International/2018).
+
+In this project, I'm going to analyze what people tweeted during the tournament. There are two part of this project. I will analyze the tweet during the tournament group stage and main event. 
+
+```{r} 
+library(rtweet) #packages for tweets
+library(lubridate) #packages for time manipulation
+library(tidyverse) #package for ggplot, dplyr, tidyr
+library(wordcloud) #to generate wordcloud
+library(tidytext) #text mining package
+library(stringr) #string manipulation
+library(tm) #another text mining packages
+library(RColorBrewer) # colour for R
+library(knitr) # table formulation
+library(pander) #pretty table format
+
+## search for 20000 tweets using the keywords above but does not include retweet and only include english
+tweets <- search_tweets(q = "#ti8", n = 20000, include_rts = FALSE, retryonratelimit = TRUE, lang = "en")
+
+#structure of tweets
+glimpse(tweets)
+```
+
+First, we going to gather the tweets using **search_tweets** function. To search the tweets, I used the keywords "*#ti8*" to gather all the tweets that have included the keywords. In addition, I also exclude all the retweets. 
+
+Based on the function, I able to gather more than 6000 tweets.
+
+```{r}
+# Tweets overtime
+ts_plot(tweets) +
+  theme_bw() +
+  labs(title = "Tweets of Dota 2 The International 8 During Group Stage", 
+       x = "Time Period",
+       y = "Number of Tweets")
+```
+
+The plot above allow us to examine the number of tweets that have accur during the event. It shows that most tweets have tweeted during the day that group stage begin more that 2000 tweets tweeted during the events. After that the tweets slowly decline as it towards the end of TI8 group stages. 
+
+```{r}
+# Tweets overtime by day
+time <- tweets %>%
+  mutate(datetime = as_datetime(created_at, tz = "Australia/Melbourne"), hour = hour(datetime)) %>%
+  group_by(date = as_date(datetime), hour) %>%
+  summarise(total = n()) %>%
+  filter(date >= as_date("2018-08-15"), date <= as_date("2018-08-19"))
+
+time %>% ggplot(aes(hour, total)) +
+  geom_col(fill = "burlywood3") +
+  facet_grid(strftime(date, "%b %d") ~. )  +
+  xlab("Hour") +
+  ylab("Total Number of Tweets") +
+  ggtitle("Tweet Overtime During Group Stage")
+```
+
+The plot above allows us to examine the hours where most tweets occurs. As you can see, most tweets occours during the hype of the event which is around 12 am to 4am in Australia time. 
+
+```{r}
+country <- 
+  tweets %>%
+  select(country) %>%
+  group_by(country) %>%
+  summarise(total = n()) %>%
+  na.omit()
+
+country %>%
+  ggplot(aes(x = reorder(country, total), y = total)) +
+  geom_col(fill = "burlywood3") +
+  xlab("Total") +
+  ylab("Country") +
+  coord_flip()
+```
+
+Next we are going to see which country tweeted the most. Malaysia has the most tweets followed by USA, Canada, Philipine and Germany. As one thing need to be reminded, not all the tweets have include their location, where majority of the tweets does not included their location. 
+
+```{r}
+## Tweets that has most favourite during group state
+favourite <-
+  tweets %>%
+  select(screen_name, created_at, text, favorite_count) %>%
+  arrange(desc(favorite_count)) %>%
+  distinct() %>%
+  mutate(datetime = as_datetime(created_at, tz = "Australia/Melbourne"), hour = hour(datetime)) %>%
+  group_by(date = as_date(datetime)) %>%
+  select(screen_name, date, text, favorite_count) %>%
+  filter(date >= as_date("2018-08-15"), date <= as_date("2018-08-19")) %>%
+  arrange(desc(favorite_count)) %>%
+  slice(1:20) %>% 
+  pander(justify = c("left", "left", "right", "right"), split.table = Inf)
+```
+
+The table above is an overview of most favourite tweets during the group stage. As you can see, twitter user wykrhm tweets have the most favourite. This is not suprising as he is one of the most favourite community figure on Dota 2. 
+
+```{r}
+replace_reg1 <- "https://t.co/[A-Za-z\\d]+|"
+replace_reg2 <- "http://[A-Za-z\\d]+|&amp;|&lt;|&gt;|RT|https"
+replace_reg <- paste0(replace_reg1, replace_reg2)
+unnest_reg <- "([^A-Za-z_\\d#@']|'(?![A-Za-z_\\d#@]))"
+
+tidy_tweets <- tweets %>%
+  mutate(text = str_replace_all(text, replace_reg, "")) %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words) 
+```
+
+Next we are going to analyze the most used word during the TI8 group stage. We first begin to remove all the non-word chracters url and symbol from the text. Next, we put the text into tidy format. For more information about the tidy text format see this [link](https://www.tidytextmining.com/)
+
+
+```{r}
+
+frequency <- tidy_tweets %>%
+  select(word) %>%
+  group_by(word) %>%
+  summarise(total = n()) %>%
+  filter(word != "ti8" & word != "dota2", word != "dota") %>%
+  top_n(25) 
+
+frequency <- frequency[-c(1:5),]
+
+frequency %>%
+  ggplot(aes(x = reorder(word, total), y = total)) +
+  geom_col(fill = "burlywood3") + 
+  xlab("Words") +
+  ylab("Total") +
+  ggtitle("The Most Frequent Word Used During TI8 Group Stage") +
+  coord_flip()
+```
+
+The resut shows that the most used the words is day, international game, team and etc. In addition, fnatic and liquid also appear on top of the list. This is because of the match where Team Fnatic win over Team Liquid with an astounding results with the score of 39 - 1. This maybe the reason why people tweet it so much. This result can be found in this [link](https://www.gosugamers.net/dota2/tournaments/27285-the-international-2018/matches/262970-team-liquid-vs-fnatic#game2)
+
+### Word Cloud
+
+```{r}
+docs <- Corpus(VectorSource(tweets$text))
+
+# Convert the text to lower case
+docs <- tm_map(docs, content_transformer(tolower))
+# Remove numbers
+docs <- tm_map(docs, removeNumbers)
+# Remove english common stopwords
+docs <- tm_map(docs, removeWords, stopwords("english"))
+# Remove punctuations
+docs <- tm_map(docs, removePunctuation)
+# Eliminate extra white spaces
+docs <- tm_map(docs, stripWhitespace)
+
+docs <- tm_map(docs, stemDocument)
+# Remove additional stopwords
+docs <- tm_map(docs, removeWords, c("ti8", "TI8", "dota2", "dota", "intern"))
+
+wordcloud(words = docs, min.freq = 1,
+          max.words=300, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Dark2"))
+```
+
+Above is just the wordcloud based on the word frequency. But this time, I removed some of the common words such as TI8 and dota to gain more insight of the words frequency. 
